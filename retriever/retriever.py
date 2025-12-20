@@ -5,8 +5,12 @@ import gc
 import faiss
 import numpy as np
 import nltk
-from transformers import AutoModel, logging
+from transformers import AutoModel
 from typing import List, Dict, Any, Tuple, Optional
+import logging
+import re
+
+logging.basicConfig(format='%(message)s', level=logging.INFO)
 
 # Ensure nltk punkt is downloaded for sentence tokenization
 try:
@@ -15,7 +19,7 @@ except LookupError:
     nltk.download('punkt', quiet=True)
 
 class RedditRetriever:
-    def __init__(self, embedding_file: str, db_file: str):
+    def __init__(self, embedding_file: str, db_file: str, persist_in_gpu: bool = True):
         """
         Initialize the retriever by connecting to the database, loading models, 
         and building the FAISS index.
@@ -23,17 +27,15 @@ class RedditRetriever:
         Parameters:
             embedding_file (str): Path to the JSONL file containing embeddings.
             db_file (str): Path to the SQLite database file.
+            persist_in_gpu (bool): Whether to keep models in GPU memory persistently.
         """
         self.db_file = db_file
         self.conn = sqlite3.connect(db_file, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row  # Access columns by name
-
+        self.persist_in_gpu = persist_in_gpu
         # 1. Initialize Embedding Model (Jina v4)
-        print('Initializing Embedding Model...')
+        logging.info('Initializing Embedding Model...')
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        
-        # Suppress transformer warnings
-        logging.set_verbosity_error()
 
         self.embed_model = AutoModel.from_pretrained(
             'jinaai/jina-embeddings-v4',
@@ -44,7 +46,7 @@ class RedditRetriever:
         self.embed_model.eval()
 
         # 2. Initialize Reranker Model (Jina v3)
-        print('Initializing Reranker Model...')
+        logging.info('Initializing Reranker Model...')
         self.reranker_model = AutoModel.from_pretrained(
             'jinaai/jina-reranker-v3',
             dtype='auto',
@@ -53,8 +55,15 @@ class RedditRetriever:
         self.reranker_model.to(self.device)
         self.reranker_model.eval()
 
+        # Offload embedding model if not persistent
+        if not self.persist_in_gpu and self.device == 'cuda':
+            self.embed_model.to('cpu')
+            self.reranker_model.to('cpu')
+            torch.cuda.empty_cache()
+            gc.collect()
+
         # 3. Build FAISS Index
-        print('Building FAISS Index from embeddings...')
+        logging.info('Building FAISS Index from embeddings...')
         self.index = None
         self.metadata = []  # Maps FAISS index id -> (post_id, chunk_id)
 
@@ -77,9 +86,9 @@ class RedditRetriever:
             # Initialize IndexFlatL2
             self.index = faiss.IndexFlatL2(dimension)
             self.index.add(embeddings_matrix)
-            print(f'Indexed {len(embeddings_list)} chunks.')
+            logging.info(f'Indexed {len(embeddings_list)} chunks.')
         else:
-            print('Warning: No embeddings found in file.')
+            logging.info('Warning: No embeddings found in file.')
 
     def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """
@@ -97,15 +106,16 @@ class RedditRetriever:
             return []
         
         # Load model to device
-        self.embed_model.to(self.device)
-        self.reranker_model.to(self.device)
+        if not self.persist_in_gpu and self.device == 'cuda':
+            self.embed_model.to(self.device)
+            self.reranker_model.to(self.device)
 
         # --- Step 1: Vector Search (Dense) ---
         # Encode query
         query_embeddings = self.embed_model.encode_text(
             texts=[query],
             task='retrieval',
-            prompt_name='query',
+            prompt_name='query'
         )
         
         # Search FAISS (fetch more than limit to allow for RRF fusion and deduplication)
@@ -250,14 +260,15 @@ class RedditRetriever:
             final_results.append({
                 'id': item['id'],
                 'title': item['title'],
-                'snippet': best_snippet + ' ...'
+                'snippet': re.sub(r'\n+', ' ', best_snippet).strip() + ' ...'
             })
         
         # Offload model and clean up
-        self.embed_model.to('cpu')
-        self.reranker_model.to('cpu')
-        torch.cuda.empty_cache()
-        gc.collect()
+        if not self.persist_in_gpu and self.device == 'cuda':
+            self.embed_model.to('cpu')
+            self.reranker_model.to('cpu')
+            torch.cuda.empty_cache()
+            gc.collect()
             
         return final_results
 
@@ -293,7 +304,7 @@ class RedditRetriever:
         
         return result
 
-    def get_comments(self, id: str, offset: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_replies(self, id: str, offset: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
         """
         Retrieve comments replying to a specific parent (post or comment), 
         sorted by score.
