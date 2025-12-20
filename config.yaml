@@ -1,0 +1,6 @@
+database:
+  file_path: 
+
+embeddings:
+  file_path: 
+  persist_in_gpu: false

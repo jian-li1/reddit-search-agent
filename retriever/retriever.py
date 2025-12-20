@@ -42,7 +42,10 @@ class RedditRetriever:
             trust_remote_code=True,
             torch_dtype=(torch.float16 if self.device == 'cuda' else torch.float32),
         )
-        self.embed_model.to(self.device)
+        if not self.persist_in_gpu and self.device == 'cuda':
+            self.embed_model.to('cpu')
+        else:
+            self.embed_model.to(self.device)
         self.embed_model.eval()
 
         # 2. Initialize Reranker Model (Jina v3)
@@ -52,15 +55,11 @@ class RedditRetriever:
             dtype='auto',
             trust_remote_code=True,
         )
-        self.reranker_model.to(self.device)
-        self.reranker_model.eval()
-
-        # Offload embedding model if not persistent
         if not self.persist_in_gpu and self.device == 'cuda':
-            self.embed_model.to('cpu')
             self.reranker_model.to('cpu')
-            torch.cuda.empty_cache()
-            gc.collect()
+        else:
+            self.reranker_model.to(self.device)
+        self.reranker_model.eval()
 
         # 3. Build FAISS Index
         logging.info('Building FAISS Index from embeddings...')
