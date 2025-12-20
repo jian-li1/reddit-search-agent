@@ -4,3 +4,9 @@ database:
 embeddings:
   file_path: 
   persist_in_gpu: false
+
+subreddit:
+  name: 
+  description: 
+
+system_prompt: 

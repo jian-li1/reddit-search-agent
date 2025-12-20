@@ -11,6 +11,8 @@ dependencies = [
     "ipykernel>=7.1.0",
     "ipywidgets>=8.1.8",
     "langchain-text-splitters>=1.1.0",
+    "mcp[cli]>=1.25.0",
+    "nltk>=3.9.2",
     "openai>=2.13.0",
     "pandas>=2.3.3",
     "peft>=0.18.0",
@@ -20,5 +22,6 @@ dependencies = [
     "torch>=2.9.1",
     "torchvision>=0.24.1",
     "transformers>=4.57.3",
+    "uvicorn>=0.38.0",
     "zstandard>=0.25.0",
 ]
