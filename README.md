@@ -119,4 +119,5 @@ With the LLM and MCP server running, the agent can now be interacted with via CL
 ## Backlog
 - Searching posts on multiple subreddits
 - Filter search results by flair
+- Construct more specific prompts and doc strings for the tool calls
 - More to come!
