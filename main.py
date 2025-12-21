@@ -3,13 +3,23 @@ import sys
 import json
 from typing import Optional, List, Dict, Any
 from contextlib import AsyncExitStack
-from openai import OpenAI
+from openai import AsyncOpenAI
 import requests
 import yaml
 import argparse
 from urllib.parse import urljoin, urlparse
 from mcp import ClientSession
 from mcp.client.sse import sse_client
+import readline
+
+# ANSI colors for better visualization
+CYAN = "\033[96m"
+YELLOW = "\033[93m"
+DIM = "\033[90m"
+RESET = "\033[0m"
+
+PROMPT_YELLOW = f"\001{YELLOW}\002"
+PROMPT_RESET = f"\001{RESET}\002"
 
 def parse_args() -> argparse.Namespace:
     """Parses and returns the values of command line arguments."""
@@ -34,7 +44,9 @@ class MCPClient:
         # Initialize session and client objects
         self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
-        self.openai = OpenAI(
+        
+        # Use AsyncOpenAI for proper non-blocking streaming
+        self.openai = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
         )
@@ -83,7 +95,7 @@ class MCPClient:
                 }
             })
         
-        print("\nConnected to server with tools:", [tool.name for tool in response.tools])
+        print(f"\nConnected to server with tools: {[tool.name for tool in response.tools]}")
 
     async def cleanup(self):
         """Clean up resources"""
@@ -101,31 +113,114 @@ class MCPClient:
 
                 print(f"\n[System] Unloading model \"{self.model}\" to free VRAM for search...")
                 unload_url = urljoin(base_root, f"/api/models/unload/{self.model}")
-                requests.post(unload_url)
+                try:
+                    requests.post(unload_url)
+                except Exception as e:
+                    print(f"Failed to unload model: {e}")
 
     async def process_query(self, query: str) -> str:
-        """Process a query using the MCP session and OpenAI"""
+        """Process a query using the MCP session and OpenAI with Streaming"""
         
         self.messages.append({"role": "user", "content": query})
 
         while True:
-            response = self.openai.chat.completions.create(
-                model=self.model, # Model name passed as argument
+            # print() # Newline before response
+            
+            # Variables to accumulate the stream
+            full_content = ""
+            full_reasoning = ""
+            tool_calls_accumulator = {} # Keyed by index
+            is_thinking = False
+            
+            # Create the stream
+            stream = await self.openai.chat.completions.create(
+                model=self.model,
                 messages=self.messages,
                 tools=self.available_tools if self.available_tools else None,
+                stream=True # Enable streaming
             )
 
-            response_message = response.choices[0].message
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                
+                delta = chunk.choices[0].delta
 
-            # Handle tool calls if any
-            if response_message.tool_calls:
+                # --- Handle Reasoning/Thinking Tokens (DeepSeek R1 style) ---
+                # Some OpenAI-compatible servers (llama.cpp/vllm) send this in 'reasoning_content'
+                reasoning_chunk = getattr(delta, 'reasoning_content', None)
+                if reasoning_chunk:
+                    if not is_thinking:
+                        print(f"\n{DIM}--- Start Thinking ---{RESET}")
+                        is_thinking = True
+                    print(f"{DIM}{reasoning_chunk}{RESET}", end="", flush=True)
+                    full_reasoning += reasoning_chunk
+
+                # --- Handle Standard Content ---
+                if delta.content:
+                    if is_thinking:
+                        print(f"\n{DIM}--- End Thinking ---{RESET}\n", end="", flush=True)
+                        is_thinking = False
+
+                    if full_content == "" and not delta.tool_calls:
+                        print()
+                    
+                    print(delta.content, end="", flush=True)
+                    full_content += delta.content
+
+                # --- Handle Tool Calls (Aggregating Fragments) ---
+                if delta.tool_calls:
+                    if is_thinking:
+                        print(f"\n{DIM}--- End Thinking ---{RESET}\n", end="", flush=True)
+                        is_thinking = False
+                    
+                    for tool_part in delta.tool_calls:
+                        idx = tool_part.index
+                        
+                        if idx not in tool_calls_accumulator:
+                            tool_calls_accumulator[idx] = {
+                                "id": "",
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""}
+                            }
+                        
+                        if tool_part.id:
+                            tool_calls_accumulator[idx]["id"] += tool_part.id
+                        if tool_part.function.name:
+                            tool_calls_accumulator[idx]["function"]["name"] += tool_part.function.name
+                        if tool_part.function.arguments:
+                            tool_calls_accumulator[idx]["function"]["arguments"] += tool_part.function.arguments
+
+            # CHANGED: Only print a newline if actual text content was streamed.
+            # This prevents blank lines appearing when the model only calls tools.
+            if full_content:
+                print()
+
+            # Reconstruct the message object from the stream
+            response_message = {
+                "role": "assistant",
+                "content": full_content if full_content else None
+            }
+            
+            # Convert accumulated tool calls to list
+            if tool_calls_accumulator:
+                tool_calls_list = []
+                for idx in sorted(tool_calls_accumulator.keys()):
+                    tool_calls_list.append(tool_calls_accumulator[idx])
+                
+                # IMPORTANT: Convert dicts back to objects expected by OpenAI client or maintain as dict
+                # For appending to history, dicts work fine with most clients, but let's be safe.
+                # Append the dict representation to self.messages
+                response_message["tool_calls"] = tool_calls_list
                 self.messages.append(response_message)
+                
+                # Execute Tools
+                for tool_call in tool_calls_list:
+                    tool_name = tool_call["function"]["name"]
+                    tool_args = tool_call["function"]["arguments"]
+                    tool_call_id = tool_call["id"]
 
-                for tool_call in response_message.tool_calls:
-                    tool_name = tool_call.function.name
-                    tool_args = tool_call.function.arguments
-
-                    # VRAM Optimization: Unload LLM before heavy search if needed
+                    # VRAM Optimization
                     if tool_name == "search":
                         try:
                             self.unload_model()
@@ -138,27 +233,46 @@ class MCPClient:
                         print(f"\nError decoding arguments for {tool_name}")
                         tool_args_dict = {}
 
-                    print(f"\n[Calling tool: {tool_name} with args {tool_args_dict}]")
+                    print(f"\n{CYAN}[Calling tool: {tool_name} with args {tool_args_dict}]{RESET}")
+                    
+                    # Call the MCP Tool
                     result = await self.session.call_tool(tool_name, tool_args_dict)
+                    
+                    # Convert result to string handling TextContent or ImageContent
+                    # MCP tool result content is a list of content objects
+                    tool_output = ""
+                    if hasattr(result, 'content'):
+                        for content_item in result.content:
+                            if hasattr(content_item, 'text'):
+                                tool_output += content_item.text
+                            else:
+                                tool_output += str(content_item)
+                    else:
+                        tool_output = str(result)
 
                     self.messages.append({
                         "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": str(result.content)
+                        "tool_call_id": tool_call_id,
+                        "content": tool_output
                     })
-            
             else:
-                final_content = response_message.content
-                self.messages.append({"role": "assistant", "content": final_content})
-                return final_content
+                # No tool calls, just a standard reply
+                self.messages.append(response_message)
+                return full_content
 
     async def chat_loop(self):
         """Interactive chat loop"""
         print("\n--- MCP Client Session Started (SSE Mode) ---")
-        print("Type 'quit' or 'exit' to end the session.")
+        print("Type 'quit', 'exit', or enter Ctrl+C twice to end the session.")
         
         while True:
-            query = input("\n>>> ").strip()
+            # Check for EOFError to handle Ctrl+D gracefully
+            try:
+                # print(f"\n{YELLOW}>>>{RESET} ", end="", flush=True)
+                print()
+                query = input(f"{PROMPT_YELLOW}>>>{PROMPT_RESET} ").strip()
+            except EOFError:
+                break
             
             if query.lower() in {"quit", "exit"}:
                 break
@@ -166,15 +280,15 @@ class MCPClient:
                 continue
 
             try:
-                response = await self.process_query(query)
-                print(f"\n{response}")
+                # Don't print the response here anymore because it's streamed inside process_query
+                await self.process_query(query)
             except Exception as e:
                 print(f"\nError processing query: {e}")
 
 def build_system_prompt(config: Dict[str, Any]) -> str:
     """Builds the system prompt based on the config."""
     base_system = config.get("system_prompt", "")
-
+    
     system_prompt_parts = [
         base_system,
         "",
@@ -186,23 +300,17 @@ def build_system_prompt(config: Dict[str, Any]) -> str:
     # Include the subreddit sentence only if the user provided subreddit info
     if subreddit:
         if subreddit.get("name"):
-            system_prompt_parts.append(
-                f"You have access to all posts/comments from the subreddit `{subreddit["name"]}`."
-            )
-
-        # Include the description only if provided
+            system_prompt_parts.append(f"You have access to all posts/comments from the subreddit `{subreddit['name']}`.")
         if subreddit.get("description"):
-            system_prompt_parts.append(
-                f"Description of the subreddit: \"{subreddit["description"]}\""
-            )
+            system_prompt_parts.append(f"Description of the subreddit: \"{subreddit['description']}\"")
 
     system_prompt_parts.extend([
         "",
-        "## Core Rule",
+        "## Core Rules",
         "Answer questions using only the information provided in the posts/comments.",
         "Answers must be derived from at least five posts/comments.",
-        "Do not answer directly or make up an answer.",
-        "Always cite specific parts of the post/comment used in your answer.",
+        "Do not answer directly or make up an answer. Do not attempt to answer solely based on the post titles or snippets.",
+        "Always cite specific parts of the posts/comments used in your answer.",
         "If you are unsure of something, make a query using the tools provided.",
         "",
         "## Tools",

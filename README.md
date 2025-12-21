@@ -9,7 +9,7 @@ Reddit Search Agent is an agentic system that provides responses based on posts 
 5. At any point, the agent can repeat steps (2), (3), and (4) if they would like to see more information.
 6. When the agent thinks there is adequate information from the posts/comments to answer the user’s question, they can generate a final response based on what they found.
 
-Thanks to the tool-calling capabilities in many LLMs, agentic workflows are made easier to facilitate. Thus, in this project, we have an MCP server (`reddit-search-mcp.py`) that exposes the search functions of the retriever to the LLM, and an MCP client with custom system prompts to ground the LLM's actions and responses. Due to the portability of MCP servers, `reddit-search-mcp.py` can be connected to other interfaces that support MCP server integration, such as LM Studio and Claude Desktop.
+Thanks to the tool-calling capabilities in many LLMs, agentic workflows are made easier to facilitate. Thus, in this project, we have an MCP server (`reddit-search-mcp.py`) that exposes the search functions of the retriever to the LLM, and an MCP client with custom system prompts to ground the LLM's actions and responses. Due to the portability of MCP servers, `reddit-search-mcp.py` can also be connected to other interfaces that support MCP server integration, such as LM Studio and Claude Desktop.
 
 The entire agent can be run locally, with both the MCP server and the LLM hosted on a local machine.
 
@@ -115,6 +115,17 @@ uv run main.py
 ```
 
 With the LLM and MCP server running, the agent can now be interacted with via CLI.
+
+Alternatively, if you are connecting the MCP server to LM Studio or Claude Desktop, simply add the following to the `mcp.json` file. Replace the host and port in the URL to the ones used to run the server.
+```json
+{
+  "mcpServers": {
+    "reddit-retriever": {
+      "url": "http://localhost:8000/sse"
+    }
+  }
+}
+```
 
 ## Backlog
 - Searching posts on multiple subreddits

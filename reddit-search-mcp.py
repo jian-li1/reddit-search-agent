@@ -8,7 +8,6 @@ logging.basicConfig(format='%(message)s', level=logging.INFO)
 
 # Create an MCP server
 if __name__ == '__main__':
-    # Initialize the Reddit retriever
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
 
@@ -19,14 +18,14 @@ else:
 @mcp.tool()
 def search(query: str, limit: int = 10) -> List[Dict[str, Any]]:
     """
-    Search relevant Reddit posts based on the query.
+    Search relevant Reddit posts based on the query. To view the content of a post, use the get_post tool with the post ID.
 
     Parameters:
-        query (str): The search query. The more descriptive, the better.
+        query (str): A descriptive search query.
         limit (int): The maximum number of results to return (default: 10).
     
     Returns:
-        List[Dict[str, Any]]: A list of dictionaries containing the search results with its corresponding post id and title.
+        List[Dict[str, Any]]: A list of dictionaries containing the search results with its corresponding post ID and title.
     """
     if retriever_instance is None:
         raise RuntimeError("Server is starting up, retriever not ready.")
@@ -38,7 +37,7 @@ def search(query: str, limit: int = 10) -> List[Dict[str, Any]]:
 @mcp.tool()
 def get_post(post_id: str) -> Optional[Dict[str, Any]]:
     """
-    Retrieve the full content of a Reddit post by its ID.
+    Retrieve the full content of a Reddit post by its ID. To view comments, use the get_replies tool with the post ID.
 
     Parameters:
         post_id (str): The ID of the Reddit post.
@@ -54,7 +53,7 @@ def get_post(post_id: str) -> Optional[Dict[str, Any]]:
 @mcp.tool()
 def get_replies(id: str, offset: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
     """
-    Retrieve comments for a Reddit post or comment, sorted by highest score.
+    Retrieve replies/comments for a Reddit post or comment, sorted by highest score.
 
     Parameters:
         id (str): The ID of the Reddit post or comment.
@@ -62,7 +61,7 @@ def get_replies(id: str, offset: int = 0, limit: int = 10) -> List[Dict[str, Any
         limit (int): The maximum number of comments to return (default: 10).
 
     Returns:
-        List[Dict[str, Any]]: A list of dictionaries containing the comments.
+        List[Dict[str, Any]]: A list of dictionaries containing the replies/comments.
     """
     if retriever_instance is None:
         raise RuntimeError("Server is starting up, retriever not ready.")
