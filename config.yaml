@@ -1,12 +1,23 @@
-database:
-  file_path: 
+# MCP Server
+db_file_path: ./database/subreddit.db
 
 embeddings:
-  file_path: 
-  persist_in_gpu: false
+  file_path: ./embeddings/subreddit_embeddings.jsonl
+  persist_in_gpu: true
 
 subreddit:
-  name: 
-  description: 
+  name: subreddit
+  description: Subreddit description
 
-system_prompt: 
+server:
+  host: localhost
+  port: 8000
+
+# MCP Client
+system_prompt: You are a helpful assistant.
+
+base_url: http://localhost:8080/v1/
+api_key: your_api_key_here
+model: llama-3.1-8B
+server_url: http://localhost:8000/sse
+llama_swap_no_persist: false

@@ -20,39 +20,6 @@ def parse_args() -> argparse.Namespace:
         default="config.yaml",
         help="Path to the config YAML file"
     )
-    parser.add_argument(
-        "--base-url",
-        type=str,
-        default=None,
-        help="API endpoint for accessing complete model"
-    )
-    parser.add_argument(
-        "--api-key",
-        type=str,
-        default="",
-        help="API key for accessing completion and embedding models"
-    )
-    parser.add_argument(
-        "-m",
-        "--model",
-        dest="model",
-        type=str,
-        required=True,
-        help="The name of the model to use"
-    )
-    parser.add_argument(
-        "--llama-swap-np", 
-        "--llama-swap-no-persist",
-        dest="llama_swap_no_persist", 
-        action="store_true",
-        help="Models will not persist in GPU memory between calls"
-    )
-    parser.add_argument(
-        "--server-url",
-        type=str,
-        required=True,
-        help="URL of the MCP server"
-    )
     return parser.parse_args()
 
 class MCPClient:
@@ -233,6 +200,7 @@ def build_system_prompt(config: Dict[str, Any]) -> str:
         "",
         "## Core Rule",
         "Answer questions using only the information provided in the posts/comments.",
+        "Answers must be derived from at least five posts/comments.",
         "Do not answer directly or make up an answer.",
         "Always cite specific parts of the post/comment used in your answer.",
         "If you are unsure of something, make a query using the tools provided.",
@@ -264,15 +232,16 @@ async def main():
     print(system_prompt)
 
     client = MCPClient(
-        base_url=args.base_url, 
-        model=args.model, 
-        api_key=args.api_key, 
+        base_url=config.get("base_url"), 
+        model=config.get("model"), 
+        api_key=config.get("api_key", ""), 
         system_prompt=system_prompt, 
-        llama_swap_no_persist=args.llama_swap_no_persist
+        llama_swap_no_persist=config.get("llama_swap_no_persist", False)
     )
     try:
-        # Pass the URL from command line args
-        await client.connect_to_server(args.server_url)
+        if config.get("server") and config["server"].get("host") and config["server"].get("port"):
+            server_url = f"http://{config['server']['host']}:{config['server']['port']}/sse"
+        await client.connect_to_server(server_url)
         await client.chat_loop()
     finally:
         await client.cleanup()
