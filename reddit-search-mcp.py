@@ -3,6 +3,7 @@ from retriever import RedditRetriever
 from typing import List, Dict, Any, Tuple, Optional
 import yaml
 import logging
+from functools import lru_cache
 
 logging.basicConfig(format='%(message)s', level=logging.INFO)
 
@@ -16,6 +17,7 @@ else:
     mcp = FastMCP('reddit-retriever')
 
 @mcp.tool()
+@lru_cache(maxsize=50)
 def search(query: str, limit: int = 10) -> List[Dict[str, Any]]:
     """
     Search relevant Reddit posts based on the query. To view the content of a post, use the get_post tool with the post ID.
@@ -35,6 +37,7 @@ def search(query: str, limit: int = 10) -> List[Dict[str, Any]]:
     return results
 
 @mcp.tool()
+@lru_cache(maxsize=50)
 def get_post(post_id: str) -> Optional[Dict[str, Any]]:
     """
     Retrieve the full content of a Reddit post by its ID. To view comments, use the get_replies tool with the post ID.
@@ -51,6 +54,7 @@ def get_post(post_id: str) -> Optional[Dict[str, Any]]:
     return retriever_instance.get_post(post_id)
 
 @mcp.tool()
+@lru_cache(maxsize=50)
 def get_replies(id: str, offset: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
     """
     Retrieve replies/comments for a Reddit post or comment, sorted by highest score.

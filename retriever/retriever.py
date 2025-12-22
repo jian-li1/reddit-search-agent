@@ -9,6 +9,8 @@ from transformers import AutoModel
 from typing import List, Dict, Any, Tuple, Optional
 import logging
 import re
+import asyncio
+from functools import lru_cache
 
 logging.basicConfig(format='%(message)s', level=logging.INFO)
 
@@ -30,12 +32,25 @@ class RedditRetriever:
             persist_in_gpu (bool): Whether to keep models in GPU memory persistently.
         """
         self.db_file = db_file
+        self.embedding_file = embedding_file
         self.conn = sqlite3.connect(db_file, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row  # Access columns by name
         self.persist_in_gpu = persist_in_gpu
-        # 1. Initialize Embedding Model (Jina v4)
-        logging.info('Initializing Embedding Model...')
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        asyncio.run(self.__init_helper__())
+    
+    async def __init_helper__(self):
+        """Asynchronous helper to initialize models and index"""
+        await asyncio.gather(
+            asyncio.to_thread(self._init_embed_model),
+            asyncio.to_thread(self._init_rerank_model),
+            asyncio.to_thread(self._build_faiss_index)
+        )
+    
+    def _init_embed_model(self):
+        """Initialize Embedding Model (Jina v4)"""
+        logging.info('Initializing Embedding Model...')
 
         self.embed_model = AutoModel.from_pretrained(
             'jinaai/jina-embeddings-v4',
@@ -47,8 +62,9 @@ class RedditRetriever:
         else:
             self.embed_model.to(self.device)
         self.embed_model.eval()
-
-        # 2. Initialize Reranker Model (Jina v3)
+    
+    def _init_rerank_model(self):
+        """Initialize Reranker Model (Jina v3)"""
         logging.info('Initializing Reranker Model...')
         self.reranker_model = AutoModel.from_pretrained(
             'jinaai/jina-reranker-v3',
@@ -60,15 +76,16 @@ class RedditRetriever:
         else:
             self.reranker_model.to(self.device)
         self.reranker_model.eval()
-
-        # 3. Build FAISS Index
+    
+    def _build_faiss_index(self):
+        """Build FAISS Index"""
         logging.info('Building FAISS Index from embeddings...')
         self.index = None
         self.metadata = []  # Maps FAISS index id -> (post_id, chunk_id)
 
         # Read JSONL file
         embeddings_list = []
-        with open(embedding_file, 'r', encoding='utf-8') as f:
+        with open(self.embedding_file, 'r', encoding='utf-8') as f:
             for line in f:
                 data = json.loads(line)
                 self.metadata.append({
@@ -89,14 +106,15 @@ class RedditRetriever:
         else:
             logging.info('Warning: No embeddings found in file.')
 
-    def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    @lru_cache(maxsize=50)
+    def search(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
         """
         Perform a hybrid search (BM25 + Vector) with RRF, deduplication, 
         and reranking to return the most relevant post snippets.
 
         Parameters:
             query (str): The user's search query.
-            limit (int): The number of results to return.
+            k (int): The number of results to return.
 
         Returns:
             List[Dict[str, Any]]: List of dictionaries containing id, title, and snippet.
@@ -119,7 +137,7 @@ class RedditRetriever:
         
         # Search FAISS (fetch more than limit to allow for RRF fusion and deduplication)
         # We fetch 100 or limit * 10 candidates to ensure overlap with BM25
-        k_neighbors = max(100, limit * 10)
+        k_neighbors = max(100, k * 10)
         distances, indices = self.index.search(np.array(query_embeddings[0].cpu().numpy()).reshape(1, -1), k_neighbors)
         
         # Store Dense Ranks: { (post_id, chunk_id): rank }
@@ -179,8 +197,8 @@ class RedditRetriever:
         # Sort posts by score descending
         sorted_posts = sorted(post_best_chunk.items(), key=lambda x: x[1][1], reverse=True)
         
-        # Take top limit * 2 candidates for reranking
-        candidates = sorted_posts[:limit * 2]
+        # Take top k * 2 candidates for reranking
+        candidates = sorted_posts[:k * 2]
         
         # --- Step 5: Retrieve Content & Rerank ---
         candidate_data = []
@@ -210,6 +228,8 @@ class RedditRetriever:
                     'reply_count': row['reply_count']
                 })
                 candidate_texts.append(row['chunk_body'])
+        
+        cursor.close()
 
         if not candidate_texts:
             return []
@@ -221,7 +241,7 @@ class RedditRetriever:
         # rerank_results is a list of dicts with 'index', 'relevance_score', 'document'
         # We need to map back to candidate_data
         reranked_indices = [res['index'] for res in rerank_results]
-        top_indices = reranked_indices[:limit]
+        top_indices = reranked_indices[:k]
         
         final_results = []
         
@@ -280,6 +300,7 @@ class RedditRetriever:
             
         return final_results
 
+    @lru_cache(maxsize=50)
     def get_post(self, id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve details of a specific post including reply count.
@@ -301,6 +322,7 @@ class RedditRetriever:
         row = cursor.fetchone()
         
         if not row:
+            cursor.close()
             return None
         
         result = dict(row)
@@ -310,8 +332,10 @@ class RedditRetriever:
         count_row = cursor.fetchone()
         result['reply_count'] = count_row[0] if count_row else 0
         
+        cursor.close()
         return result
-
+    
+    @lru_cache(maxsize=50)
     def get_replies(self, id: str, offset: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
         """
         Retrieve comments replying to a specific parent (post or comment), 
@@ -348,5 +372,6 @@ class RedditRetriever:
             comment_data['reply_count'] = count_row[0] if count_row else 0
             
             results.append(comment_data)
-            
+        
+        cursor.close()
         return results
