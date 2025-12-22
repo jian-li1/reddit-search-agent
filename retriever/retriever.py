@@ -187,9 +187,13 @@ class RedditRetriever:
         candidate_texts = []
         
         for post_id, (chunk_id, _) in candidates:
-            # Fetch chunk body and post title
+            # Fetch chunk body, post title, post score, and comment count
             cursor.execute("""
-                SELECT sc.body as chunk_body, s.title as post_title
+                SELECT 
+                    sc.body as chunk_body, 
+                    s.title as post_title,
+                    s.score as post_score,
+                    (SELECT COUNT(*) FROM comments c WHERE c.parent_id = s.post_id) as reply_count
                 FROM submission_chunks sc
                 JOIN submissions s ON sc.post_id = s.post_id
                 WHERE sc.post_id = ? AND sc.chunk_id = ?
@@ -201,7 +205,9 @@ class RedditRetriever:
                     'id': post_id,
                     'chunk_id': chunk_id,
                     'title': row['post_title'],
-                    'body': row['chunk_body']
+                    'body': row['chunk_body'],
+                    'score': row['post_score'],
+                    'reply_count': row['reply_count']
                 })
                 candidate_texts.append(row['chunk_body'])
 
@@ -220,6 +226,7 @@ class RedditRetriever:
         final_results = []
         
         # --- Step 6: Generate Summary Snippets ---
+        window_size = 1  # Number of sentences per passage
         for idx in top_indices:
             item = candidate_data[idx]
             full_text = item['body']
@@ -233,13 +240,13 @@ class RedditRetriever:
             
             passages = []
             
-            if len(sentences) <= 3:
+            if len(sentences) <= window_size:
                 # If chunk is short, combine all sentences as one passage
                 passages = [' '.join(sentences)]
             else:
                 # Sliding window of 3 sentences
-                for i in range(len(sentences) - 2):
-                    window = ' '.join(sentences[i : i + 3])
+                for i in range(len(sentences) - window_size + 1):
+                    window = ' '.join(sentences[i : i + window_size])
                     passages.append(window)
             
             # If no passages (empty string), use raw body
@@ -259,7 +266,9 @@ class RedditRetriever:
             final_results.append({
                 'id': item['id'],
                 'title': item['title'],
-                'snippet': re.sub(r'\n+', ' ', best_snippet).strip() + ' ...'
+                'snippet': re.sub(r'\n+', ' ', best_snippet).strip() + ' (Read more...)',
+                'score': item['score'],
+                'reply_count': item['reply_count']
             })
         
         # Offload model and clean up

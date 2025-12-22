@@ -103,6 +103,8 @@ Even with a setup of a single RTX 4090, it is difficult to load the embedding an
 
 The `persist_in_gpu` field in the `config.yaml` file allows the embedding and reranker model to be loaded only when a query is made. By using [llama-swap](https://github.com/mostlygeek/llama-swap) on top of llama.cpp, the `llama_swap_no_persist` field allows the MCP client to send a request to llama-swap to unload the LLM as soon as a tool call is made for retrieval. This hot-swapping approach incurs some overhead in runtime, albeit fairly minimal on a Linux machine.
 
+Alternatively, you can set the environmental variable `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` when serving the LLM to prevent out of memory error on llama.cpp (more information [here](https://github.com/ggml-org/llama.cpp/blob/ddcb75dd8ac42dc23eb84f13bb17670fe9f2d49b/docs/build.md#unified-memory)).
+
 ### Running the MCP Client and Server
 With the `config.yaml` set up, simply run the MCP server as follows:
 ```

@@ -25,14 +25,14 @@ def search(query: str, limit: int = 10) -> List[Dict[str, Any]]:
         limit (int): The maximum number of results to return (default: 10).
     
     Returns:
-        List[Dict[str, Any]]: A list of dictionaries containing the search results with its corresponding post ID and title.
+        Search results containing the post ID, title, snippet, score, and number of replies for each post.
     """
     if retriever_instance is None:
         raise RuntimeError("Server is starting up, retriever not ready.")
         
     results = retriever_instance.search(query, limit)
-    return [{'id': r['id'], 'title': r['title']} for r in results]
-    # return results
+    # return [{'id': r['id'], 'title': r['title']} for r in results]
+    return results
 
 @mcp.tool()
 def get_post(post_id: str) -> Optional[Dict[str, Any]]:
@@ -43,7 +43,7 @@ def get_post(post_id: str) -> Optional[Dict[str, Any]]:
         post_id (str): The ID of the Reddit post.
     
     Returns:
-        Optional[Dict[str, Any]]: A dictionary containing the post details or None if not found.
+        Full content of the Reddit post along with its metadata, including title, body, score, and number of replies.
     """
     if retriever_instance is None:
         raise RuntimeError("Server is starting up, retriever not ready.")
@@ -61,7 +61,7 @@ def get_replies(id: str, offset: int = 0, limit: int = 10) -> List[Dict[str, Any
         limit (int): The maximum number of comments to return (default: 10).
 
     Returns:
-        List[Dict[str, Any]]: A list of dictionaries containing the replies/comments.
+        A list of replies/comments with their metadata, including the author and score.
     """
     if retriever_instance is None:
         raise RuntimeError("Server is starting up, retriever not ready.")

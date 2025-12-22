@@ -123,9 +123,8 @@ class MCPClient:
         
         self.messages.append({"role": "user", "content": query})
 
-        while True:
-            # print() # Newline before response
-            
+        tool_choice = "auto"
+        while True:            
             # Variables to accumulate the stream
             full_content = ""
             full_reasoning = ""
@@ -137,8 +136,11 @@ class MCPClient:
                 model=self.model,
                 messages=self.messages,
                 tools=self.available_tools if self.available_tools else None,
+                tool_choice=tool_choice,
                 stream=True # Enable streaming
             )
+            # Reset tool choice for potential re-try
+            tool_choice = "auto" 
 
             async for chunk in stream:
                 if not chunk.choices:
@@ -220,8 +222,12 @@ class MCPClient:
                     tool_args = tool_call["function"]["arguments"]
                     tool_call_id = tool_call["id"]
 
-                    # VRAM Optimization
+                    
                     if tool_name == "search":
+                        # Require model to call a tool after search to get post content
+                        tool_choice = "required"
+                        
+                        # VRAM Optimization
                         try:
                             self.unload_model()
                         except Exception as e:
@@ -306,9 +312,12 @@ def build_system_prompt(config: Dict[str, Any]) -> str:
 
     system_prompt_parts.extend([
         "",
+        "## Instructions",
+        "Carefully read and analyze each post/comment before moving on to the next.",
+        "Use the tools provided to search for relevant posts/comments based on the user's query.",
         "## Core Rules",
         "Answer questions using only the information provided in the posts/comments.",
-        "Answers must be derived from at least five posts/comments.",
+        "Answers must be derived from multiple posts/comments.",
         "Do not answer directly or make up an answer. Do not attempt to answer solely based on the post titles or snippets.",
         "Always cite specific parts of the posts/comments used in your answer.",
         "If you are unsure of something, make a query using the tools provided.",
