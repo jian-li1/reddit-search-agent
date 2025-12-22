@@ -225,7 +225,7 @@ class MCPClient:
                     
                     if tool_name == "search":
                         # Require model to call a tool after search to get post content
-                        tool_choice = "required"
+                        # tool_choice = "required"
                         
                         # VRAM Optimization
                         try:
@@ -315,9 +315,9 @@ def build_system_prompt(config: Dict[str, Any]) -> str:
         "## Instructions",
         "Carefully read and analyze each post/comment before moving on to the next.",
         "Use the tools provided to search for relevant posts/comments based on the user's query.",
-        "## Core Rules",
+        "## Core Rules and Requirements",
         "Answer questions using only the information provided in the posts/comments.",
-        "Answers must be derived from multiple posts/comments.",
+        "Answers must be derived from **at least 5** posts/comments, so you must call `get_post` and `get_replies` at least 5 times each.",
         "Do not answer directly or make up an answer. Do not attempt to answer solely based on the post titles or snippets.",
         "Always cite specific parts of the posts/comments used in your answer.",
         "If you are unsure of something, make a query using the tools provided.",

@@ -20,7 +20,7 @@ else:
 @lru_cache(maxsize=50)
 def search(query: str, limit: int = 10) -> List[Dict[str, Any]]:
     """
-    Search relevant Reddit posts based on the query. To view the content of a post, use the get_post tool with the post ID.
+    Search relevant Reddit posts based on the query.
 
     Parameters:
         query (str): A descriptive search query.
@@ -28,6 +28,8 @@ def search(query: str, limit: int = 10) -> List[Dict[str, Any]]:
     
     Returns:
         Search results containing the post ID, title, snippet, score, and number of replies for each post.
+        Note: Search results do not include the full content of the posts.
+        To view the content of a post, use the get_post tool with the post ID.
     """
     if retriever_instance is None:
         raise RuntimeError("Server is starting up, retriever not ready.")
