@@ -330,7 +330,7 @@ def build_system_prompt(config: Dict[str, Any]) -> str:
         "Use this tool to get the full content of the post by specifying the post ID.",
         "",
         "### get_replies",
-        "Use this tool to get the replies of the message (post/comment) by specifying its ID.",
+        "Use this tool to get the comments/replies of the message (post/comment) by specifying its ID.",
     ])
 
     return "\n".join([p for p in system_prompt_parts if p is not None])

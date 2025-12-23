@@ -39,6 +39,10 @@ class RedditRetriever:
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         asyncio.run(self.__init_helper__())
+
+        if not self.persist_in_gpu and self.device == 'cuda':
+            torch.cuda.empty_cache()
+            gc.collect()
     
     async def __init_helper__(self):
         """Asynchronous helper to initialize models and index"""
@@ -375,3 +379,16 @@ class RedditRetriever:
         
         cursor.close()
         return results
+    
+    def __del__(self):
+        """Cleanup resources on deletion"""
+        self.conn.close()
+        
+        # Offload models
+        del self.embed_model
+        del self.reranker_model
+
+        torch.cuda.empty_cache()
+        gc.collect()
+
+        logging.info('Retriever resources have been cleaned up.')

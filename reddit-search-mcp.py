@@ -82,4 +82,8 @@ if __name__ == '__main__':
         config.get('embeddings', {}).get('persist_in_gpu', True)
     )
 
-    mcp.run(transport='sse')
+    try:
+        mcp.run(transport='sse')
+    except KeyboardInterrupt:
+        del retriever_instance
+        print("Server stopped by user.")
