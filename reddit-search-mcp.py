@@ -18,23 +18,23 @@ else:
 
 @mcp.tool()
 @lru_cache(maxsize=50)
-def search(query: str, limit: int = 10) -> List[Dict[str, Any]]:
+def search(query: str, limit: int = 10, subreddit: str = None) -> List[Dict[str, Any]]:
     """
     Search relevant Reddit posts based on the query.
 
     Parameters:
         query (str): A descriptive search query.
         limit (int): The maximum number of results to return (default: 10).
-    
+        subreddit (str): The subreddit to search within (default: None, meaning all subreddits).
     Returns:
-        Search results containing the post ID, title, snippet, score, and number of replies for each post.
+        Search results containing the post ID, title, snippet, score, subreddit, and number of replies for each post.
         Note: Search results do not include the full content of the posts.
         To view the content of a post, use the get_post tool with the post ID.
     """
     if retriever_instance is None:
         raise RuntimeError("Server is starting up, retriever not ready.")
         
-    results = retriever_instance.search(query, limit)
+    results = retriever_instance.search(query, limit, subreddit)
     # return [{'id': r['id'], 'title': r['title']} for r in results]
     return results
 

@@ -47,7 +47,7 @@ The maximum depth is the maximum level of nesting of a Reddit thread.
 
 Now, embed the Reddit posts and build the SQLite database:
 ```bash
-uv run data/build.py -d <directory of filtered csv files> --subreddit <subreddit name> --chunk-size <size> --chunk-overlap <chunk overlap size> --batch-size <batch size>
+uv run data/build.py -d <directory of filtered csv files> --subreddit <subreddit name> --database <output database file> --embeddings <output embeddings file> --chunk-size <size> --chunk-overlap <chunk overlap size> --batch-size <batch size>
 ```
 
 ### Configuration
@@ -130,7 +130,6 @@ Alternatively, if you are connecting the MCP server to LM Studio or Claude Deskt
 ```
 
 ## Backlog
-- Searching posts on multiple subreddits
 - Filter search results by flair
 - Construct more specific prompts and doc strings for the tool calls
 - More to come!

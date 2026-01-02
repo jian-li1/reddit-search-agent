@@ -33,6 +33,20 @@ def parse_args() -> argparse.Namespace:
         help='Subreddit name'
     )
     parser.add_argument(
+        '--db', '--database',
+        dest='db_path',
+        type=str,
+        required=True,
+        help='Output path for the SQLite database'
+    )
+    parser.add_argument(
+        '--em', '--embeddings',
+        dest='embed_path',
+        type=str,
+        required=True,
+        help='Output path for the embeddings JSONL file'
+    )
+    parser.add_argument(
         '--chunk-size',
         type=int,
         default=1024,
@@ -124,6 +138,7 @@ def generate_chunks(
         title_text = str(row['title']) if not pd.isna(row['title']) else ''
         submission_text = title_text + '\n\n' + body_text
         post_id = row['id']
+        subreddit = row['subreddit']
 
         chunks = text_splitter.split_text(submission_text)
 
@@ -141,7 +156,8 @@ def generate_chunks(
             yield {
                 'post_id': post_id,
                 'chunk_id': i + 1, # 1-based index per prompt
-                'text': final_text
+                'text': final_text,
+                'subreddit': subreddit
             }
 
 def process_embeddings_and_save(
@@ -189,6 +205,7 @@ def process_embeddings_and_save(
             record = {
                 'id': chunk_data['post_id'],
                 'chunk_id': chunk_data['chunk_id'],
+                'subreddit': chunk_data['subreddit'],
                 'embeddings': embedding_vector.cpu().tolist()
             }
             with open(output_path, 'a', encoding='utf-8') as f:
@@ -221,7 +238,8 @@ def setup_database(db_path: str) -> None:
             author TEXT,
             title TEXT,
             body TEXT,
-            flair TEXT
+            flair TEXT,
+            subreddit TEXT
         );
     """)
 
@@ -234,7 +252,8 @@ def setup_database(db_path: str) -> None:
             created TEXT,
             score INTEGER,
             author TEXT,
-            body TEXT
+            body TEXT,
+            subreddit TEXT
         );
     """)
 
@@ -244,7 +263,8 @@ def setup_database(db_path: str) -> None:
         CREATE VIRTUAL TABLE IF NOT EXISTS submission_chunks USING fts5(
             post_id UNINDEXED,
             chunk_id UNINDEXED,
-            body
+            body,
+            subreddit UNINDEXED
         );
     """)
     
@@ -292,29 +312,31 @@ def insert_data_to_db(
             str(row['author']),
             str(row['title']),
             str(row['body']),
-            str(row['link_flair_text'])
+            str(row['link_flair_text']),
+            str(row['subreddit'])
         ))
     
     execute_batch_commit("""
-        INSERT OR IGNORE INTO submissions (post_id, created, score, author, title, body, flair)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO submissions (post_id, created, score, author, title, body, flair, subreddit)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, submission_data)
 
     # Insert Comments
     comment_data = []
-    for _, row in comments.iterrows():
+    for i, row in comments.iterrows():
         comment_data.append((
             str(row['parent_id']),
             str(row['id']),
             str(row['created']),
             int(row['score']),
             str(row['author']),
-            str(row['body'])
+            str(row['body']),
+            str(row['subreddit'])
         ))
     
     execute_batch_commit("""
-        INSERT OR IGNORE INTO comments (parent_id, comment_id, created, score, author, body)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO comments (parent_id, comment_id, created, score, author, body, subreddit)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """, comment_data)
 
     # Insert Chunks directly into the FTS table
@@ -323,13 +345,14 @@ def insert_data_to_db(
         chunk_data.append((
             str(chunk['post_id']),
             int(chunk['chunk_id']),
-            str(chunk['text'])
+            str(chunk['text']),
+            str(chunk['subreddit'])
         ))
 
     # Note: We insert directly into the virtual table name
     execute_batch_commit("""
-        INSERT INTO submission_chunks (post_id, chunk_id, body)
-        VALUES (?, ?, ?)
+        INSERT INTO submission_chunks (post_id, chunk_id, body, subreddit)
+        VALUES (?, ?, ?, ?)
     """, chunk_data)
 
     conn.commit()
@@ -350,16 +373,14 @@ def main():
     all_chunks = list(chunks_generator) # Manifest list to use for both embedding and DB
     
     # 3. Create Database
-    db_filename = f'{subreddit}.db'
-    db_path = os.path.join(directory, db_filename)
-    setup_database(db_path)
+    db_path = args.db_path
+    setup_database(args.db_path)
 
     # 4. Insert Records
     insert_data_to_db(db_path, data['submissions'], data['comments'], all_chunks)
 
     # 5. Generate Embeddings and Save JSONL
-    jsonl_filename = f'{subreddit}_embeddings.jsonl'
-    jsonl_path = os.path.join(directory, jsonl_filename)
+    jsonl_path = args.embed_path
     process_embeddings_and_save(all_chunks, jsonl_path, args.batch_size)
 
     print('Build process finished successfully.')

@@ -69,7 +69,7 @@ if __name__ == '__main__':
         'distinguished': 'string',
         'subreddit': 'string',
         'link': 'string'
-    }).rename(columns={'text': 'body'}).drop(columns=['subreddit', 'link'])
+    }).rename(columns={'text': 'body'}).drop(columns=['link'])
     submission_df['created'] = pd.to_datetime(submission_df['created'], format='%Y-%m-%d %H:%M:%S')
 
     comment_df = pd.read_csv(f'{path}_comments.csv', dtype={
@@ -80,7 +80,7 @@ if __name__ == '__main__':
         'distinguished': 'string',
         'subreddit': 'string',
         'link': 'string'
-    }).rename(columns={'name': 'id'}).drop(columns=['subreddit', 'link'])
+    }).rename(columns={'name': 'id'}).drop(columns=['link'])
     comment_df['created'] = pd.to_datetime(comment_df['created'], format='%Y-%m-%d %H:%M:%S')
 
     # Filter submissions and comments (score >= min_score, not moderator, not removed/deleted, and not empty)

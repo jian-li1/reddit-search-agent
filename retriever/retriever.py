@@ -86,17 +86,39 @@ class RedditRetriever:
         logging.info('Building FAISS Index from embeddings...')
         self.index = None
         self.metadata = []  # Maps FAISS index id -> (post_id, chunk_id)
+        self.subreddit_range = {}  # Maps subreddit -> (start_idx, end_idx)
 
         # Read JSONL file
-        embeddings_list = []
+        data_list = []
         with open(self.embedding_file, 'r', encoding='utf-8') as f:
             for line in f:
-                data = json.loads(line)
-                self.metadata.append({
-                    'post_id': data['id'], 
-                    'chunk_id': data['chunk_id']
-                })
-                embeddings_list.append(data['embeddings'])
+                data_list.append(json.loads(line))
+        
+        # Ensure consistent order
+        data_list.sort(key=lambda x: x['subreddit'])
+
+        embeddings_list = []
+        
+        # Build metadata and embeddings while computing subreddit ranges
+        current_subreddit = None
+        start_idx = 0
+        for i, data in enumerate(data_list):
+            sub = data['subreddit']
+            if sub != current_subreddit:
+                # end index is exclusive
+                self.subreddit_range[current_subreddit] = (start_idx, i)
+                current_subreddit = sub
+                start_idx = i
+
+            self.metadata.append({
+                'post_id': data['id'],
+                'chunk_id': data['chunk_id']
+            })
+            embeddings_list.append(data['embeddings'])
+
+        # Finalize last subreddit range
+        if current_subreddit is not None:
+            self.subreddit_range[current_subreddit] = (start_idx, len(data_list))
 
         if embeddings_list:
             # Convert to numpy array
@@ -110,8 +132,7 @@ class RedditRetriever:
         else:
             logging.info('Warning: No embeddings found in file.')
 
-    @lru_cache(maxsize=50)
-    def search(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
+    def search(self, query: str, k: int = 10, subreddit: str = None) -> List[Dict[str, Any]]:
         """
         Perform a hybrid search (BM25 + Vector) with RRF, deduplication, 
         and reranking to return the most relevant post snippets.
@@ -119,11 +140,16 @@ class RedditRetriever:
         Parameters:
             query (str): The user's search query.
             k (int): The number of results to return.
+            subreddit (str): Optional subreddit argument to search within.
 
         Returns:
             List[Dict[str, Any]]: List of dictionaries containing id, title, and snippet.
         """
-        if not self.index:
+        return self._search(query, k, subreddit)
+    
+    @lru_cache(maxsize=50)
+    def _search(self, query: str, k: int = 10, subreddit: str = None) -> List[Dict[str, Any]]:
+        if not self.index or (subreddit and subreddit not in self.subreddit_range):
             return []
         
         # Load model to device
@@ -141,8 +167,18 @@ class RedditRetriever:
         
         # Search FAISS (fetch more than limit to allow for RRF fusion and deduplication)
         # We fetch 100 or limit * 10 candidates to ensure overlap with BM25
+        if subreddit:
+            start_idx, end_idx = self.subreddit_range[subreddit]
+            params = faiss.SearchParameters(sel=faiss.IDSelectorRange(start_idx, end_idx))
+        else:
+            params = None
+        
         k_neighbors = max(100, k * 10)
-        distances, indices = self.index.search(np.array(query_embeddings[0].cpu().numpy()).reshape(1, -1), k_neighbors)
+        distances, indices = self.index.search(
+            np.array(query_embeddings[0].cpu().numpy()).reshape(1, -1), 
+            k_neighbors,
+            params=params
+        )
         
         # Store Dense Ranks: { (post_id, chunk_id): rank }
         dense_ranks = {}
@@ -158,13 +194,22 @@ class RedditRetriever:
         # Fetch top candidates from FTS5
         # Note: 'rank' in FTS5 is a calculated score, smaller is usually better/more relevant 
         # depending on calculation, but 'ORDER BY rank' puts best matches first.
-        cursor.execute("""
-            SELECT post_id, chunk_id 
-            FROM submission_chunks 
-            WHERE submission_chunks MATCH ? 
-            ORDER BY rank 
-            LIMIT ?
-        """, (query, k_neighbors))
+        if subreddit:
+            cursor.execute("""
+                SELECT post_id, chunk_id 
+                FROM submission_chunks 
+                WHERE subreddit = ? AND submission_chunks MATCH ? 
+                ORDER BY rank 
+                LIMIT ?
+            """, (subreddit, query, k_neighbors))
+        else:
+            cursor.execute("""
+                SELECT post_id, chunk_id 
+                FROM submission_chunks 
+                WHERE submission_chunks MATCH ? 
+                ORDER BY rank 
+                LIMIT ?
+            """, (query, k_neighbors))
         
         bm25_results = cursor.fetchall()
         
@@ -215,6 +260,7 @@ class RedditRetriever:
                     sc.body as chunk_body, 
                     s.title as post_title,
                     s.score as post_score,
+                    s.subreddit as subreddit,
                     (SELECT COUNT(*) FROM comments c WHERE c.parent_id = s.post_id) as reply_count
                 FROM submission_chunks sc
                 JOIN submissions s ON sc.post_id = s.post_id
@@ -229,6 +275,7 @@ class RedditRetriever:
                     'title': row['post_title'],
                     'body': row['chunk_body'],
                     'score': row['post_score'],
+                    'subreddit': row['subreddit'],
                     'reply_count': row['reply_count']
                 })
                 candidate_texts.append(row['chunk_body'])
@@ -292,6 +339,7 @@ class RedditRetriever:
                 'title': item['title'],
                 'snippet': re.sub(r'\n+', ' ', best_snippet).strip() + ' (Read more...)',
                 'score': item['score'],
+                'subreddit': item['subreddit'],
                 'reply_count': item['reply_count']
             })
         
@@ -304,7 +352,6 @@ class RedditRetriever:
             
         return final_results
 
-    @lru_cache(maxsize=50)
     def get_post(self, id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve details of a specific post including reply count.
@@ -315,6 +362,10 @@ class RedditRetriever:
         Returns:
             Optional[Dict[str, Any]]: Dictionary of post details or None if not found.
         """
+        return self._get_post(id)
+    
+    @lru_cache(maxsize=50)
+    def _get_post(self, id: str) -> Optional[Dict[str, Any]]:
         cursor = self.conn.cursor()
         
         # Get Post Details
@@ -339,7 +390,6 @@ class RedditRetriever:
         cursor.close()
         return result
     
-    @lru_cache(maxsize=50)
     def get_replies(self, id: str, offset: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
         """
         Retrieve comments replying to a specific parent (post or comment), 
@@ -353,6 +403,10 @@ class RedditRetriever:
         Returns:
             List[Dict[str, Any]]: List of comment dictionaries.
         """
+        return self._get_replies(id, offset, limit)
+    
+    @lru_cache(maxsize=50)
+    def _get_replies(self, id: str, offset: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
         
         # Fetch Comments
