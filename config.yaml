@@ -6,8 +6,10 @@ embeddings:
   persist_in_gpu: true
 
 subreddit:
-  name: subreddit
-  description: Subreddit description
+  - name: subreddit1
+    description: Description of subreddit1
+  - name: subreddit2
+    description: Description of subreddit2
 
 server:
   host: localhost

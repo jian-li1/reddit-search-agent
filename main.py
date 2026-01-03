@@ -301,14 +301,16 @@ def build_system_prompt(config: Dict[str, Any]) -> str:
         "As a Reddit Search Agent, your task is to answer user's questions based on the content of Reddit posts/comments.",
     ]
 
-    subreddit = config.get("subreddit")
+    subreddits = config.get("subreddits", [])
 
     # Include the subreddit sentence only if the user provided subreddit info
-    if subreddit:
-        if subreddit.get("name"):
-            system_prompt_parts.append(f"You have access to all posts/comments from the subreddit `{subreddit['name']}`.")
-        if subreddit.get("description"):
-            system_prompt_parts.append(f"Description of the subreddit: \"{subreddit['description']}\"")
+    if subreddits:
+        system_prompt_parts.append("You have access to the following subreddits:")
+        for subreddit in subreddits:
+            subreddit_name = subreddit.get("name")
+            subreddit_desc = subreddit.get("description")
+            if subreddit_name:
+                system_prompt_parts.append(f"- `r/{subreddit_name}`" + (f': {subreddit_desc}' if subreddit_desc else ''))
 
     system_prompt_parts.extend([
         "",
