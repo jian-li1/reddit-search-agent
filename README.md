@@ -1,6 +1,6 @@
 # Reddit Search Agent
 
-Reddit Search Agent is an agentic system that provides responses based on posts and comments from a specific subreddit. This AI agent is designed to mimic how a human searches for information online by scrolling through relevant Reddit discussions. The agentic loop is represented as follows:
+Reddit Search Agent is a local agentic system that provides responses based on posts and comments from a specific subreddit. This AI agent is designed to mimic how a human searches for information online by scrolling through relevant Reddit discussions. The agentic loop is represented as follows:
 
 1. The user asks a question to the agent.
 2. The agent takes the question and forms a query to search for related posts.
@@ -14,7 +14,7 @@ Thanks to the tool-calling capabilities in many LLMs, agentic workflows are made
 The entire agent can be run locally, with both the MCP server and the LLM hosted on a local machine.
 
 ## Data
-The subreddit submissions and comments can be downloaded from this [torrent](https://academictorrents.com/details/ba051999301b109eab37d16f027b3f49ade2de13) containing the the zstandard files of the submissions and comments from the top 40,000 subreddits from June 2005 to December 2024 (more information can be found [here](https://www.reddit.com/r/pushshift/comments/1itme1k/separate_dump_files_for_the_top_40k_subreddits/)). Scripts are provided in this repo to extract the `.zst` files into CSV files, filter out submissions/comments, and embed submissions and insert all messages into a SQLite database.
+The subreddit submissions and comments can be downloaded from this [torrent](https://academictorrents.com/details/1614740ac8c94505e4ecb9d88be8bed7b6afddd4) containing the the zstandard files of the submissions and comments from the top 40,000 subreddits from June 2005 to December 2024 (more information can be found [here](https://www.reddit.com/r/pushshift/comments/1itme1k/separate_dump_files_for_the_top_40k_subreddits/)). Scripts are provided in this repo to extract the `.zst` files into CSV files, filter out submissions/comments, and embed submissions and insert all messages into a SQLite database.
 
 ## Retriever
 The retriever holds the vector embeddings of the posts and the SQLite database containing the content and information of every post and comment. It uses the embedding model [`jinaai/jina-embeddings-v4`](https://huggingface.co/jinaai/jina-embeddings-v4) and the reranker model [`jinaai/jina-reranker-v3`](https://huggingface.co/jinaai/jina-reranker-v3), both of which are perfect for the information retrieval task of this system. When a query is made, the retriever performs a hybrid search (leveraging both similarity search on the vector embeddings and BM25 search on the database) over all the posts, followed by a reranking pass. The combination of these retrievals is great at delivering accurate and relevant results to the query.
