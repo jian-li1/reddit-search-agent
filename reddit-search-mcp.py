@@ -18,14 +18,14 @@ else:
 
 @mcp.tool()
 @lru_cache(maxsize=50)
-def search(query: str, limit: int = 10, subreddit: str = None) -> List[Dict[str, Any]]:
+def search(query: str, limit: int = 10, subreddit: str = 'all') -> List[Dict[str, Any]]:
     """
     Search relevant Reddit posts based on the query.
 
     Parameters:
         query (str): A descriptive search query.
         limit (int): The maximum number of results to return (default: 10).
-        subreddit (str): The subreddit to search within. The prefix `r/` should not be specified. (default: None, meaning all subreddits).
+        subreddit (str): Optional argument to filter by a specific subreddit. The prefix `r/` should not be specified. (default: all)
     Returns:
         Search results containing the post ID, title, snippet, score, subreddit, and number of replies for each post.
         Note: Search results do not include the full content of the posts.
@@ -34,9 +34,15 @@ def search(query: str, limit: int = 10, subreddit: str = None) -> List[Dict[str,
     if retriever_instance is None:
         raise RuntimeError("Server is starting up, retriever not ready.")
     
-    if subreddit and subreddit.startswith('r/'):
-        subreddit = subreddit[2:]
-    results = retriever_instance.search(query, limit, subreddit)
+    if subreddit:
+        if subreddit.startswith('r/'):
+            subreddit_filter = subreddit[2:]
+        if subreddit_filter == 'all':
+            subreddit_filter = None
+    else:
+        subreddit_filter = None
+    
+    results = retriever_instance.search(query, limit, subreddit_filter)
     # return [{'id': r['id'], 'title': r['title']} for r in results]
     return results
 

@@ -306,11 +306,12 @@ def build_system_prompt(config: Dict[str, Any]) -> str:
     # Include the subreddit sentence only if the user provided subreddit info
     if subreddits:
         system_prompt_parts.append("You have access to the following subreddits:")
-        for subreddit in subreddits:
+        for i, subreddit in enumerate(subreddits, start=1):
             subreddit_name = subreddit.get("name")
             subreddit_desc = subreddit.get("description")
             if subreddit_name:
-                system_prompt_parts.append(f"- `r/{subreddit_name}`" + (f': {subreddit_desc}' if subreddit_desc else ''))
+                system_prompt_parts.append(f"{i}. `r/{subreddit_name}`" + (f": {subreddit_desc}" if subreddit_desc else ""))
+                system_prompt_parts.append("")
 
     system_prompt_parts.extend([
         "",

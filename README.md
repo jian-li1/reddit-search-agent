@@ -60,17 +60,17 @@ embeddings:
   file_path: ./embeddings/subreddit_embeddings.jsonl
   persist_in_gpu: true
 
+server:
+  host: localhost
+  port: 8000
+
+# MCP Client
 subreddit:
   - name: subreddit1
     description: Description of subreddit1
   - name: subreddit2
     description: Description of subreddit2
 
-server:
-  host: localhost
-  port: 8000
-
-# MCP Client
 system_prompt: You are a helpful assistant.
 
 base_url: http://localhost:8080/v1/
