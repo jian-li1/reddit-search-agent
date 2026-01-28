@@ -35,8 +35,9 @@ def search(query: str, limit: int = 10, subreddit: str = 'all') -> List[Dict[str
         raise RuntimeError("Server is starting up, retriever not ready.")
     
     if subreddit:
-        if subreddit.startswith('r/'):
-            subreddit_filter = subreddit[2:]
+        subreddit_filter = subreddit
+        if subreddit_filter.startswith('r/'):
+            subreddit_filter = subreddit_filter[2:]
         if subreddit_filter == 'all':
             subreddit_filter = None
     else:

@@ -316,6 +316,7 @@ def build_system_prompt(config: Dict[str, Any]) -> str:
     system_prompt_parts.extend([
         "",
         "## Instructions",
+        "Before you begin searching for Reddit posts, first reiterate the user's query thoroughly and write down your thought process step by step.",
         "Carefully read and analyze each post/comment before moving on to the next.",
         "Use the tools provided to search for relevant posts/comments based on the user's query.",
         "## Core Rules and Requirements",
